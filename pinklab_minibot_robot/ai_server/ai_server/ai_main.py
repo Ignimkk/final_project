@@ -4,9 +4,9 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 import json
-from yolo_loads import YoloDetector
-from distance_calculator import DistanceCalculator
-from data_handle import DataHandler
+from .yolo_loads import YoloDetector
+from .distance_calculator import DistanceCalculator
+from .data_handle import DataHandler
 
 # 서버 설정
 server_ip = '0.0.0.0'

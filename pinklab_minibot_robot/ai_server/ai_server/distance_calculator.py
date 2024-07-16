@@ -1,72 +1,21 @@
-import numpy as np
-import cv2
-import json
+import math
 
-class DataHandler:
-    def __init__(self, client_socket):
-        self.client_socket = client_socket
-
-    def receive_data(self):
-        try:
-            total_length = int.from_bytes(self.client_socket.recv(4), 'big')
-            print(f"Receiving total data of length: {total_length}")
-
-            image_length = int.from_bytes(self.client_socket.recv(4), 'big')
-            print(f"Receiving image data of length: {image_length}")
-            image_data = bytearray()
-            while len(image_data) < image_length:
-                packet = self.client_socket.recv(min(image_length - len(image_data), 4096))
-                if not packet:
-                    break
-                image_data.extend(packet)
-            print(f"Received image data of length: {len(image_data)}")
-
-            lidar_length = int.from_bytes(self.client_socket.recv(4), 'big')
-            print(f"Receiving lidar data of length: {lidar_length}")
-            lidar_data = bytearray()
-            while len(lidar_data) < lidar_length:
-                packet = self.client_socket.recv(min(lidar_length - len(lidar_data), 4096))
-                if not packet:
-                    break
-                lidar_data.extend(packet)
-            print(f"Received lidar data of length: {len(lidar_data)}")
-
-            # 이미지 데이터 디코딩
-            np_array = np.frombuffer(image_data, np.uint8)
-            cv_image = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
-            if cv_image is None:
-                print("Failed to decode image data")
-                return None, None
-
-            # 라이다 데이터 디코딩
-            lidar_json = json.loads(lidar_data.decode('utf-8'))
-
-            return cv_image, lidar_json
-        except Exception as e:
-            print(f"Exception in receive_data: {e}")
-            return None, None
-
-    def _receive_length(self):
-        try:
-            length_data = self.client_socket.recv(4)
-            if len(length_data) < 4:
-                print("Failed to receive length data")
-                return None
-            return int.from_bytes(length_data, 'big')
-        except Exception as e:
-            print(f"Exception in _receive_length: {e}")
-            return None
-
-    def _receive_data(self, data_length):
-        try:
-            data = bytearray()
-            while len(data) < data_length:
-                packet = self.client_socket.recv(min(data_length - len(data), 4096))
-                if not packet:
-                    print("Failed to receive data packet")
-                    return None
-                data.extend(packet)
-            return data
-        except Exception as e:
-            print(f"Exception in _receive_data: {e}")
-            return None
+class DistanceCalculator:
+    def calculate_distance(self, lidar_data, box, image_width, lidar_offset_forward, lidar_offset_downward):
+        x_center = (box[0] + box[2]) // 2
+        lidar_angle_min = -180.0
+        lidar_angle_max = 180.0
+        angle_range = lidar_angle_max - lidar_angle_min
+        angle_per_pixel = angle_range / image_width
+        lidar_angle = lidar_angle_min + (x_center * angle_per_pixel)
+        min_distance = float('inf')
+        for offset in range(-20, 21):
+            angle_offset = lidar_angle + (offset * angle_per_pixel)
+            angle_index = int((angle_offset - lidar_angle_min) / angle_range * len(lidar_data['ranges']))
+            if 0 <= angle_index < len(lidar_data['ranges']):
+                distance = lidar_data['ranges'][angle_index]
+                if distance != float('inf') and distance > 0:
+                    distance_corrected = math.sqrt(distance**2 - lidar_offset_forward**2 - lidar_offset_downward**2)
+                    if distance_corrected < min_distance:
+                        min_distance = distance_corrected
+        return min_distance
