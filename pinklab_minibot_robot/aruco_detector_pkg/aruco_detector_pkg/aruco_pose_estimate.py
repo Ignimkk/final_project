@@ -46,7 +46,7 @@ class ArucoMarkerDetector(Node):
             )
 
             # 로봇 포즈 출판 설정
-            self.pose_publisher = self.create_publisher(PoseStamped, '/robot_pose', 10)
+            self.pose_publisher = self.create_publisher(PoseStamped, '/goal_pose', 10)
             
             self.get_logger().info('Initialization complete.')
         
@@ -60,9 +60,6 @@ class ArucoMarkerDetector(Node):
             # 이미지 메시지를 OpenCV 이미지로 변환
             frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
             gray_frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-
-            # cv.imwrite('/tmp/received_frame.jpg', gray_frame)
-            # self.get_logger().info('Image saved to /tmp/received_frame.jpg')
 
             # 아루코 마커 검출 및 코너 좌표 추출
             marker_corners, marker_IDs, reject = self.detector.detectMarkers(gray_frame)
@@ -118,9 +115,7 @@ class ArucoMarkerDetector(Node):
                     
                     # 로봇 포즈 출판
                     pose = PoseStamped()
-                    # pose.header.frame_id = 'camera_frame'
-                    pose.header.frame_id = 'odom'
-
+                    pose.header.frame_id = 'map'  # Ensure frame ID is set to 'map' if using map-based navigation
                     pose.header.stamp = self.get_clock().now().to_msg()
                     pose.pose.position.x = tVec[0][0]
                     pose.pose.position.y = tVec[1][0]
@@ -139,8 +134,8 @@ class ArucoMarkerDetector(Node):
                     # TransformStamped 메시지 생성
                     transform = TransformStamped()
                     transform.header.stamp = self.get_clock().now().to_msg()
-                    transform.header.frame_id = 'odom'  # 부모 프레임
-                    transform.child_frame_id = 'base_footprint'  # 자식 프레임
+                    transform.header.frame_id = 'map'  # Ensure frame ID is set to 'map'
+                    transform.child_frame_id = 'base_footprint'
 
                     # 위치 설정
                     transform.transform.translation.x = tVec[0][0]

@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
+from geometry_msgs.msg import Twist
 import json
 
 class DetectionServer(Node):
@@ -13,17 +14,17 @@ class DetectionServer(Node):
             self.listener_callback,
             10
         )
-        self.state_subscription = self.create_subscription(
-            String,
-            'robot_state',
-            self.state_callback,
+        self.velocity_subscription = self.create_subscription(
+            Twist,
+            'cmd_vel',
+            self.velocity_callback,
             10
         )
         self.subscription
         self.is_robot_stopped = False  # 로봇이 정지 상태인지 추적
 
-    def state_callback(self, msg):
-        if msg.data == 'STOPPED':
+    def velocity_callback(self, msg):
+        if msg.linear.x == 0.0 and msg.angular.z == 0.0:
             self.is_robot_stopped = True
         else:
             self.is_robot_stopped = False
