@@ -11,6 +11,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/calib_data', ['calib_data/MultiMatrix.npz']),
+        ('share/' + package_name + '/launch', ['launch/aruco_cmd_vel_launch.py']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -23,6 +24,7 @@ setup(
         'console_scripts': [
             'aruco_pose_estimate = aruco_detector_pkg.aruco_pose_estimate:main',
             'pose_to_goal = aruco_detector_pkg.pose_to_goal:main',
+            'cmd_vel_relay = aruco_detector_pkg.cmd_vel_relay:main',
         ],
     },
 )

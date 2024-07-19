@@ -1,22 +1,22 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import PoseStamped, TransformStamped
+from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge
 import cv2 as cv
 import numpy as np
 import os
 from ament_index_python.packages import get_package_share_directory
-from tf2_ros import TransformBroadcaster
 
-class ArucoMarkerDetector(Node):
+class ArucoCmdVelPublisher(Node):
     def __init__(self):
-        super().__init__('aruco_marker_detector')
-        self.get_logger().info('ArucoMarkerDetector node has been started.')
+        super().__init__('aruco_cmd_vel_publisher')
+        self.get_logger().info('ArucoCmdVelPublisher node has been started.')
 
-        self.tf_broadcaster = TransformBroadcaster(self)
-        
-        # 패키지 디렉터리 경로 설정
+        self.bridge = CvBridge()
+        self.marker_size = 7.5  # 센티미터 단위
+        self.angle_aligned = False  # 각도 조정 완료 여부
+
         try:
             package_share_directory = get_package_share_directory('aruco_detector_pkg')
             calib_data_path = os.path.join(package_share_directory, 'calib_data', 'MultiMatrix.npz')
@@ -25,17 +25,11 @@ class ArucoMarkerDetector(Node):
             calib_data = np.load(calib_data_path)
             self.cam_mat = calib_data["camMatrix"]
             self.dist_coef = calib_data["distCoef"]
-            self.r_vectors = calib_data["rVector"]
-            self.t_vectors = calib_data["tVector"]
 
-            self.marker_size = 7.5  # 센티미터 단위
-            
             # 아루코 마커 사전 및 감지 파라미터 설정
             self.dictionary = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_50)
             self.parameters = cv.aruco.DetectorParameters()
             self.detector = cv.aruco.ArucoDetector(self.dictionary, self.parameters)
-
-            self.bridge = CvBridge()
 
             # 이미지를 subscribe
             self.image_subscription = self.create_subscription(
@@ -45,28 +39,22 @@ class ArucoMarkerDetector(Node):
                 10
             )
 
-            # 로봇 포즈 출판 설정
-            self.pose_publisher = self.create_publisher(PoseStamped, '/robot_pose', 10)
-            
+            # cmd_vel 퍼블리셔
+            self.cmd_vel_publisher = self.create_publisher(Twist, 'cmd_vel', 10)
+
             self.get_logger().info('Initialization complete.')
         
         except Exception as e:
             self.get_logger().error(f'Error during initialization: {e}')
 
     def image_callback(self, msg):
-        self.get_logger().info('Image received.')
-        
         try:
             # 이미지 메시지를 OpenCV 이미지로 변환
             frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
             gray_frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
 
-            # cv.imwrite('/tmp/received_frame.jpg', gray_frame)
-            # self.get_logger().info('Image saved to /tmp/received_frame.jpg')
-
             # 아루코 마커 검출 및 코너 좌표 추출
-            marker_corners, marker_IDs, reject = self.detector.detectMarkers(gray_frame)
-            self.get_logger().info(f'Detected {len(marker_corners)} markers.')
+            marker_corners, marker_IDs, _ = self.detector.detectMarkers(gray_frame)
 
             if marker_corners:
                 for marker_corner, marker_id in zip(marker_corners, marker_IDs):
@@ -78,93 +66,52 @@ class ArucoMarkerDetector(Node):
                         self.get_marker_corners_3d(), marker_corner_2d, self.cam_mat, self.dist_coef
                     )
 
-                    # 마커의 포즈 그리기 및 정보 출력
-                    cv.polylines(
-                        frame, [marker_corner.astype(np.int32)], True, (0, 255, 255), 4, cv.LINE_AA
-                    )
+                    if ret:
+                        if not self.angle_aligned:
+                            # 마커의 중심 좌표 계산
+                            center_x = (marker_corner_2d[0][0] + marker_corner_2d[2][0]) / 2.0
+                            frame_center_x = frame.shape[1] / 2.0
+                            error_x = center_x - frame_center_x
 
-                    corners = marker_corner.reshape(4, 2)
-                    corners = corners.astype(int)
-                    top_right = corners[0].ravel()
-                    bottom_right = corners[2].ravel()
+                            self.get_logger().info(f'Error x: {error_x}')
 
-                    distance = np.sqrt(
-                        tVec[0][0] ** 2 + tVec[1][0] ** 2 + tVec[2][0] ** 2
-                    )
+                            twist = Twist()
+                            if abs(error_x) > 10:  # 임계값 설정
+                                # 마커의 중심이 프레임의 중심과 일치하지 않는 경우 회전
+                                twist.angular.z = -0.002 * error_x
+                                twist.linear.x = 0.0
+                            else:
+                                self.angle_aligned = True
+                                twist.angular.z = 0.0
+                                twist.linear.x = 0.0
 
-                    cv.drawFrameAxes(frame, self.cam_mat, self.dist_coef, rVec, tVec, 4, 4)
-                    cv.putText(
-                        frame,
-                        f"id: {marker_id[0]} Dist: {round(distance, 2)}",
-                        top_right,
-                        cv.FONT_HERSHEY_PLAIN,
-                        1.3,
-                        (0, 0, 255),
-                        2,
-                        cv.LINE_AA,
-                    )
-                    cv.putText(
-                        frame,
-                        f"x:{round(tVec[0][0],1)} y: {round(tVec[1][0],1)} z: {round(tVec[2][0],1)}",
-                        bottom_right,
-                        cv.FONT_HERSHEY_PLAIN,
-                        1.0,
-                        (0, 0, 255),
-                        2,
-                        cv.LINE_AA,
-                    )
+                            self.cmd_vel_publisher.publish(twist)
+                        else:
+                            # 마커와의 거리가 30cm보다 크면 전진
+                            distance = np.sqrt(tVec[0][0]**2 + tVec[1][0]**2 + tVec[2][0]**2)
+                            twist = Twist()
+                            if distance > 30:
+                                twist.linear.x = 0.1
+                                twist.angular.z = 0.0
+                            else:
+                                twist.linear.x = 0.0
+                                twist.angular.z = 0.0
+                                self.angle_aligned = False
 
-                    self.get_logger().info(f'Estimated pose: x={tVec[0][0]}, y={tVec[1][0]}, z={tVec[2][0]}')
-                    
-                    # 로봇 포즈 출판
-                    pose = PoseStamped()
-                    # pose.header.frame_id = 'camera_frame'
-                    pose.header.frame_id = 'odom'
+                            self.cmd_vel_publisher.publish(twist)
 
-                    pose.header.stamp = self.get_clock().now().to_msg()
-                    pose.pose.position.x = tVec[0][0]
-                    pose.pose.position.y = tVec[1][0]
-                    pose.pose.position.z = tVec[2][0]
+                    else:
+                        self.get_logger().error('Pose estimation failed.')
 
-                    # rotation vector를 quaternion으로 변환
-                    rot_matrix, _ = cv.Rodrigues(rVec)
-                    pose.pose.orientation.x = rot_matrix[0][0]
-                    pose.pose.orientation.y = rot_matrix[1][0]
-                    pose.pose.orientation.z = rot_matrix[2][0]
-                    pose.pose.orientation.w = rot_matrix[2][1]
-
-                    self.pose_publisher.publish(pose)
-                    self.get_logger().info(f'Published pose for marker ID {marker_id[0]}')
-
-                    # TransformStamped 메시지 생성
-                    transform = TransformStamped()
-                    transform.header.stamp = self.get_clock().now().to_msg()
-                    transform.header.frame_id = 'odom'  # 부모 프레임
-                    transform.child_frame_id = 'base_footprint'  # 자식 프레임
-
-                    # 위치 설정
-                    transform.transform.translation.x = tVec[0][0]
-                    transform.transform.translation.y = tVec[1][0]
-                    transform.transform.translation.z = tVec[2][0]
-
-                    # 회전 설정
-                    transform.transform.rotation.x = pose.pose.orientation.x
-                    transform.transform.rotation.y = pose.pose.orientation.y
-                    transform.transform.rotation.z = pose.pose.orientation.z
-                    transform.transform.rotation.w = pose.pose.orientation.w
-
-                    # TF 브로드캐스트
-                    self.tf_broadcaster.sendTransform(transform)
-                    self.get_logger().info(f'TF published for marker ID {marker_id[0]}')
-                    
             else:
                 self.get_logger().info('No markers detected.')
-                
-            cv.imshow("frame", frame)
+            
+            # OpenCV를 사용하여 화면에 이미지 표시
+            cv.imshow('Aruco Detection', frame)
             cv.waitKey(1)
         
         except Exception as e:
-            self.get_logger().error(f'Error in image_callback: {e}')
+            self.get_logger().error(f'Error in process_image: {e}')
 
     def get_marker_corners_3d(self):
         return np.array([
@@ -176,13 +123,16 @@ class ArucoMarkerDetector(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = ArucoMarkerDetector()
+    node = ArucoCmdVelPublisher()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     node.destroy_node()
     rclpy.shutdown()
+
+    # OpenCV 창 닫기
+    cv.destroyAllWindows()
 
 if __name__ == '__main__':
     main()

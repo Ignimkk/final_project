@@ -20,7 +20,7 @@ print(f"Server listening on {server_ip}:{server_port}")
 class DetectionClient(Node):
     def __init__(self):
         super().__init__('detection_client')
-        self.publisher_ = self.create_publisher(String, 'detection_topic', 10)
+        self.publisher_ = self.create_publisher(String, 'detection_result', 10)
 
     def send_detection_data(self, labels, distances):
         detection_data = {
