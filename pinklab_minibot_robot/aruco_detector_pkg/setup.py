@@ -25,6 +25,7 @@ setup(
             'aruco_pose_estimate = aruco_detector_pkg.aruco_pose_estimate:main',
             'pose_to_goal = aruco_detector_pkg.pose_to_goal:main',
             'cmd_vel_relay = aruco_detector_pkg.cmd_vel_relay:main',
+            'tf_aruco = aruco_detector_pkg.tf_aruco:main'
         ],
     },
 )

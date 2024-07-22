@@ -1,0 +1,24 @@
+dwb_controller:
+  ros__parameters:
+    base_local_planner: "dwb_core::DWBLocalPlanner"
+    acc_lim_x: 1.0
+    acc_lim_y: 0.0
+    acc_lim_theta: 2.0
+    max_vel_x: 0.5
+    min_vel_x: 0.1
+    max_vel_y: 0.0
+    min_vel_y: 0.0
+    max_vel_theta: 1.0
+    min_vel_theta: 0.2
+    xy_goal_tolerance: 0.25
+    yaw_goal_tolerance: 0.25
+
+    critics:
+      GoalDistCritic:
+        scale: 24.0
+      PathDistCritic:
+        scale: 32.0
+      GoalAlignCritic:
+        scale: 32.0
+      ObstacleFootprintCritic:
+        scale: 0.5
