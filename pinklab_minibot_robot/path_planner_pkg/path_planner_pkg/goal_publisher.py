@@ -5,7 +5,7 @@ from geometry_msgs.msg import PoseStamped
 class GoalPublisher(Node):
     def __init__(self):
         super().__init__('goal_publisher')
-        self.publisher_ = self.create_publisher(PoseStamped, '/goal_pose', 10)
+        self.publisher_ = self.create_publisher(PoseStamped, '/new_goal_pose', 10)
         self.timer = self.create_timer(2, self.publish_goal)
         self.goal_pose = PoseStamped()
         self.goal_pose.header.frame_id = 'map'

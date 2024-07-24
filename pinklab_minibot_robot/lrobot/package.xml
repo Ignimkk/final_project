@@ -1,19 +1,19 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>sensor_sender_pkg</name>
+  <name>lrobot</name>
   <version>0.0.0</version>
-  <description>The sensor_sender_pkg package</description>
-  <maintainer email="mk@todo.todo">mk</maintainer>
+  <description>TODO: Package description</description>
+  <maintainer email="ysu0415@gmail.com">ys</maintainer>
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <buildtool_depend>ament_python</buildtool_depend>
-
   <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
-  <depend>cv_bridge</depend>
-  <depend>launch</depend>  <!-- launch 파일이 있는 경우 -->
+  <depend>nav2_simple_commander</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

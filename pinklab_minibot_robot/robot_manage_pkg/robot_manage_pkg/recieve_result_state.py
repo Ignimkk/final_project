@@ -7,10 +7,10 @@ import json
 class DetectionServer(Node):
     def __init__(self):
         super().__init__('detection_server')
-        self.publisher_ = self.create_publisher(String, 'robot_command_topic', 10)
+        self.publisher = self.create_publisher(String, 'robot_command_topic', 10)
         self.subscription = self.create_subscription(
             String,
-            'detection_topic',
+            'detection_result',
             self.listener_callback,
             10
         )
@@ -39,7 +39,7 @@ class DetectionServer(Node):
                 if not self.is_robot_stopped:  # 로봇이 정지 상태가 아니면
                     stop_command = String()
                     stop_command.data = "STOP"
-                    self.publisher_.publish(stop_command)
+                    self.publisher.publish(stop_command)
                     self.get_logger().info("STOP command sent to the robot")
             else:
                 if self.is_robot_stopped:  # 로봇이 정지 상태이면

@@ -16,7 +16,12 @@
   <depend>tf2_ros</depend>
   <depend>nav2_bringup</depend>
   <depend>nav2_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>tf-transformations</depend>
+  <depend>numpy</depend>
+  <depend>Pillow</depend>
 
+  
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
