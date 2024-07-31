@@ -1,20 +1,25 @@
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import PoseStamped, Twist, PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 import numpy as np
 import heapq
 import yaml
 from PIL import Image
 import os
+from nav2_simple_commander.robot_navigator import BasicNavigator
+import matplotlib.pyplot as plt
+
+# NavigationResult 열거형을 모킹합니다.
+class NavigationResult:
+    SUCCEEDED = 0
+    CANCELED = 1
+    FAILED = 2
 
 class PathPlanningNode(Node):
     def __init__(self):
         super().__init__('path_planning_node')
-        self.publisher = self.create_publisher(
-            Twist,
-            '/base_controller/cmd_vel_unstamped',
-            10)
-        
+        self.navigator = BasicNavigator()
+
         self.subscription = self.create_subscription(
             PoseStamped,
             'new_goal_pose',
@@ -33,10 +38,11 @@ class PathPlanningNode(Node):
         self.grid = np.zeros((self.grid_size, self.grid_size), dtype=int)
         self.map_loaded = False
         self.current_position = (0.0, 0.0)
+        self.current_position_grid = (0, 0)
         self.goal_position = None
         self.path = []
-        self.load_map(os.path.expanduser('~/pinkbot/src/map/center.yaml'))
-        self.get_logger().info('PathPlanningNode has been initialized')
+        self.load_map(os.path.expanduser('/home/mk/final_project/ros-repo-4/maps/mfc.yaml'))
+        self.get_logger().info('PathPlanningNode가 초기화되었습니다')
 
     def load_map(self, yaml_file):
         try:
@@ -60,8 +66,31 @@ class PathPlanningNode(Node):
             self.map_loaded = True
             self.get_logger().info('맵이 로드되고 그리드가 생성되었습니다')
             self.get_logger().info(f'그리드 데이터:\n{self.grid}')
+
+            self.visualize_grid()
+
         except Exception as e:
             self.get_logger().error(f'맵 로드 실패: {e}')
+
+            
+
+    def visualize_grid(self):
+        fig, ax = plt.subplots()
+        ax.imshow(self.grid, cmap='gray')
+
+        # 그리드 선 추가
+        for x in range(self.grid_size):
+            ax.axhline(x - 0.5, color='black', linewidth=0.5)
+            ax.axvline(x - 0.5, color='black', linewidth=0.5)
+
+        ax.set_xticks(np.arange(-.5, self.grid_size, 1))
+        ax.set_yticks(np.arange(-.5, self.grid_size, 1))
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+
+        plt.grid(True)
+        plt.savefig('/tmp/grid_visualization.png')  # 이미지 파일로 저장
+        plt.show()  # 화면에 표시
 
     def goal_pose_callback(self, msg):
         if not self.map_loaded:
@@ -71,14 +100,14 @@ class PathPlanningNode(Node):
         # 원시 목표 좌표
         raw_goal_x = msg.pose.position.x
         raw_goal_y = msg.pose.position.y
-        self.get_logger().info(f'수신된 원시 목표 지점: ({raw_goal_x}, {raw_goal_y})')  # 원시 목표 좌표 로그
+        self.get_logger().info(f'수신된 원시 목표 지점: ({raw_goal_x}, {raw_goal_y})')
 
-        # 좌표 변환: 2m x 2m 맵을 고려하여 그리드 크기로 변환
-        goal_x = int((raw_goal_x / 2.0) * self.grid_size)
-        goal_y = int((raw_goal_y / 2.0) * self.grid_size)
+        # 좌표 변환: 1.5m x 3.6m 맵을 고려하여 그리드 크기로 변환
+        goal_x = int((raw_goal_x / 1.5) * self.grid_size)
+        goal_y = int((raw_goal_y / 3.6) * self.grid_size)
         self.goal_position = (goal_x, goal_y)
 
-        self.get_logger().info(f'변환된 목표 지점: {self.goal_position}')  # 변환된 목표 좌표 로그
+        self.get_logger().info(f'변환된 목표 지점: {self.goal_position}')
 
         if not (0 <= goal_x < self.grid_size and 0 <= goal_y < self.grid_size):
             self.get_logger().warn(f'목표 위치가 범위를 벗어났습니다: {self.goal_position}')
@@ -87,8 +116,6 @@ class PathPlanningNode(Node):
         self.plan_and_execute_path()
 
     def amcl_callback(self, msg):
-        # 초기 로그 메시지 추가
-        print("*********************************************")
         self.get_logger().debug('amcl_callback 호출됨')
         
         # amcl_pose 데이터를 기반으로 로봇의 현재 위치 업데이트
@@ -97,7 +124,13 @@ class PathPlanningNode(Node):
 
         # 현재 위치는 float형으로 유지
         self.current_position = (raw_position_x, raw_position_y)
-        self.get_logger().debug(f'amcl_pose로부터 수신된 위치: ({raw_position_x}, {raw_position_y})')  # 수신된 위치 로그
+        
+        # 현재 위치를 그리드 좌표로 변환
+        grid_position_x = int((raw_position_x / 1.5) * self.grid_size)
+        grid_position_y = int((raw_position_y / 3.6) * self.grid_size)
+        self.current_position_grid = (grid_position_x, grid_position_y)
+
+        self.get_logger().info(f'amcl_pose로부터 수신된 위치: ({raw_position_x}, {raw_position_y}), 그리드 위치: {self.current_position_grid}')
 
     def heuristic(self, a, b):
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
@@ -153,7 +186,7 @@ class PathPlanningNode(Node):
             return
 
         # 현재 위치와 목표 위치를 그리드 좌표로 변환
-        start = (int((self.current_position[0] / 2.0) * self.grid_size), int((self.current_position[1] / 2.0) * self.grid_size))
+        start = self.current_position_grid
         goal = self.goal_position
 
         self.get_logger().info(f'시작 지점: {start}, 목표 지점: {goal}')
@@ -170,26 +203,30 @@ class PathPlanningNode(Node):
         if not self.path:
             return
 
-        while self.path:
-            current_target = self.path[0]
-            self.get_logger().info(f'현재 목표 지점: {current_target}')
-            # 현재 위치를 그리드 좌표로 변환
-            current_position_grid = (int((self.current_position[0] / 2.0) * self.grid_size), int((self.current_position[1] / 2.0) * self.grid_size))
-            while current_position_grid != current_target:
-                twist = Twist()
-                twist.linear.x = 0.1  # 속도를 적절히 조정
-                self.publisher.publish(twist)
-                self.get_logger().info(f'현재 위치: {self.current_position}')  # 현재 위치 로그 추가
-                rclpy.spin_once(self, timeout_sec=0.1)
-                current_position_grid = (int((self.current_position[0] / 2.0) * self.grid_size), int((self.current_position[1] / 2.0) * self.grid_size))
+        # self.path는 그리드 좌표로 되어 있으므로 이를 실제 월드 좌표로 변환
+        for point in self.path:
+            world_x = (point[0] / self.grid_size) * 1.5
+            world_y = (point[1] / self.grid_size) * 3.6
 
-            self.path.pop(0)
+            goal_pose = PoseStamped()
+            goal_pose.header.frame_id = 'map'
+            goal_pose.header.stamp = self.get_clock().now().to_msg()
+            goal_pose.pose.position.x = world_x
+            goal_pose.pose.position.y = world_y
+            goal_pose.pose.orientation.w = 1.0
 
-        twist = Twist()
-        twist.linear.x = 0.0
-        twist.angular.z = 0.0
-        self.publisher.publish(twist)
-        self.get_logger().info('목표 위치에 도달했습니다. 속도를 0으로 설정합니다.')
+            self.navigator.goToPose(goal_pose)
+
+            while not self.navigator.isTaskComplete():
+                result = self.navigator.getResult()
+                if result == NavigationResult.SUCCEEDED:
+                    self.get_logger().info(f'목표 지점에 성공적으로 도달: ({world_x}, {world_y})')
+                    break
+                elif result in [NavigationResult.CANCELED, NavigationResult.FAILED]:
+                    self.get_logger().warn(f'목표 지점에 도달 실패: ({world_x}, {world_y})')
+                    return
+
+        self.get_logger().info('모든 경로 지점에 도달했습니다.')
 
 def main(args=None):
     rclpy.init(args=args)
